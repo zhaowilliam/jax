@@ -452,13 +452,23 @@ class ShardedDeviceArray(xla.DeviceArray):
         buf_idx = None
       if buf_idx is not None:
         buf = self.device_buffers[buf_idx]
-        # TODO(jblespiau): We can simply use buf.xla_shape() when version 0.1.58
-        # is the default.
-        aval = ShapedArray(
-            getattr(buf, "xla_shape", buf.shape)().dimensions(),
-            self.aval.dtype)
+        # TODO(jblespiau): use buf.xla_shape() after jaxlib==0.1.58 is default
+        aval = ShapedArray(getattr(buf, "xla_shape", buf.shape)().dimensions(),
+                           self.aval.dtype)
         return xla.make_device_array(aval, None, lazy.array(aval.shape), buf)
     return super(ShardedDeviceArray, self).__getitem__(idx)
+
+  def __iter__(self):
+    if self.ndim == 0:
+      raise TypeError("iteration over a 0-d array")  # same as numpy error
+    else:
+      return (self[i] for i in range(self.shape[0]))
+
+  def __reversed__(self):
+    if self.ndim == 0:
+      raise TypeError("iteration over a 0-d array")  # same as numpy error
+    else:
+      return (self[i] for i in range(self.shape[0] - 1, -1, -1))
 
 
 def _hashable_index(idx):

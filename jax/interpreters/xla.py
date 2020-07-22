@@ -1135,13 +1135,21 @@ class DeviceArray:
     if self.ndim == 0:
       raise TypeError("iteration over a 0-d array")  # same as numpy error
     else:
-      return self._value.__iter__()
+      device = self.device_buffer.device()
+      if device is None or device.platform == 'cpu':
+        # do the slicing in NumPy for better performance
+        return iter(self._value)
+        device = device or xb.devices('cpu')
+        aval = ShapedArray(self.aval.shape[1:], self.aval.dtype,
+                           self.aval.weak_type)
+        lexpr = lazy.array(aval.shape)
+        return (make_device_array(aval, device, lexpr, *device_put(x, device))
+                for x in self._value)
+      else:
+        return (sl for chunk in self._chunk_iter(100) for sl in chunk._unstack())
 
   def __reversed__(self):
-    if self.ndim == 0:
-      raise TypeError("iteration over a 0-d array")
-    else:
-      return reversed(self._value)
+    return iter(self[::-1])
 
   def __format__(self, format_spec):
     # Simulates behavior of https://github.com/numpy/numpy/pull/9883

@@ -1132,10 +1132,11 @@ class DeviceArray:
       raise TypeError("len() of unsized object") from err # same as numpy error
 
   def __iter__(self):
+    self._check_if_deleted()
     if self.ndim == 0:
       raise TypeError("iteration over a 0-d array")  # same as numpy error
     else:
-      device = self.device_buffer.device()
+      device = self.device_buffer.device()  # type: ignore
       if device is None or device.platform == 'cpu':
         # do the slicing in NumPy for better performance
         return iter(self._value)

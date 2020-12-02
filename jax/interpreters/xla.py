@@ -1139,7 +1139,7 @@ class DeviceArray:
       device = self.device_buffer.device()  # type: ignore
       if device is None or device.platform == 'cpu':
         # do the slicing in NumPy for better performance
-        device = device or xb.devices('cpu')
+        device = device or xb.devices('cpu')[0]
         backend = xb.get_device_backend(device)
         aval = ShapedArray(self.aval.shape[1:], self.aval.dtype,
                            self.aval.weak_type)

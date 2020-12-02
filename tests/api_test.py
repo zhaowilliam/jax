@@ -2049,6 +2049,11 @@ class APITest(jtu.JaxTestCase):
 
     f(1.)  # doesn't crash
 
+  def test_device_array_unpacking_1D_hashable(self):
+    xs = device_put(np.array([1, 1]))
+    x, _ = xs
+    hash(x)  # doesn't crash
+
 
 class RematTest(jtu.JaxTestCase):
 

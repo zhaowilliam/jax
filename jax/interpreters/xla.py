@@ -1139,15 +1139,23 @@ class DeviceArray:
       device = self.device_buffer.device()  # type: ignore
       if device is None or device.platform == 'cpu':
         # do the slicing in NumPy for better performance
-        return iter(self._value)
         device = device or xb.devices('cpu')
+        backend = xb.get_device_backend(device)
         aval = ShapedArray(self.aval.shape[1:], self.aval.dtype,
                            self.aval.weak_type)
         lexpr = lazy.array(aval.shape)
-        return (make_device_array(aval, device, lexpr, *device_put(x, device))
+        return (make_device_array(aval, device, lexpr,
+                                  backend.buffer_from_pyval(x, device))
                 for x in self._value)
       else:
-        return (sl for chunk in self._chunk_iter(100) for sl in chunk._unstack())
+        # We enter an eval context so that unpacking a DeviceArray (i.e. an
+        # un-staged value) isn't staged out when there is an active jit trace.
+        def gen():
+          with core.eval_context():
+            for chunk in self._chunk_iter(100):
+              for sl in chunk._unstack():
+                yield sl
+        return gen()
 
   def __reversed__(self):
     return iter(self[::-1])

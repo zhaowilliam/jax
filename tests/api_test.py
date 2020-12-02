@@ -2040,6 +2040,15 @@ class APITest(jtu.JaxTestCase):
     with self.assertRaisesRegex(ValueError, "tangent values inconsistent"):
       f_jvp(np.ones(2, np.int32))
 
+  def test_device_array_unpacking(self):
+    newshape = device_put(np.array([1, 1]))
+
+    @jit
+    def f(x):
+      return jnp.reshape(x, newshape)
+
+    f(1.)  # doesn't crash
+
 
 class RematTest(jtu.JaxTestCase):
 

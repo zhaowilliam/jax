@@ -49,7 +49,7 @@ from ..abstract_arrays import array_types
 from ..core import ConcreteArray, ShapedArray
 from .._src.util import (partial, unzip2, unzip3, prod, safe_map, safe_zip,
                          extend_name_stack, wrap_name, assert_unreachable,
-                         tuple_insert, tuple_delete, curry)
+                         tuple_delete, curry)
 from ..lib import xla_bridge as xb
 from ..lib import xla_client as xc
 from ..lib import pmap_lib
@@ -104,31 +104,17 @@ _UNSHARDED_INSTANCE = NoSharding()
 AvalDimSharding = Union[Unstacked, Chunked, NoSharding]
 MeshDimAssignment = Union[ShardedAxis, Replicated]
 
+if TYPE_CHECKING:
+  class ShardingSpec(NamedTuple):
+    sharding: List[AvalDimSharding]
+    mesh_mapping: List[MeshDimAssignment]
+else:
+  ShardingSpec = pmap_lib.ShardingSpec
 
-class ShardingSpec:
-  """Describes the sharding of an ndarray.
 
-  Attributes:
-    sharding: specifies how the array is supposed to get partitioned into chunks.
-      Its length should match the rank of the array. See the docstring of
-      `AvalDimSharding` for the supported partitioning schemes.
-    mesh_mapping` describes an assignments of the array chunks created by `sharding`
-      to a logical device mesh. The length of the tuple is equal to the rank of the
-      mesh. Each mesh dimension can either get partitions of data varying along one
-      of the sharded dimensions, or the data can be replicated. See the docstring of
-      `MeshDimAssignment` for more information.
-  """
-  sharding: Tuple[AvalDimSharding, ...]
-  mesh_mapping: Tuple[MeshDimAssignment, ...]
+_DUMMY_INDENT = True
 
-  def __init__(self,
-               sharding: Iterable[AvalDimSharding],
-               mesh_mapping: Iterable[MeshDimAssignment]):
-    self.sharding = tuple(sharding)
-    assert all(x is not None for x in self.sharding)
-    self.mesh_mapping = tuple(mesh_mapping)
-
-  @property
+if _DUMMY_INDENT:
   def mesh_shape(self):
     sharded_axis_sizes = []
     for sharding in self.sharding:
@@ -265,10 +251,19 @@ class ShardingSpec:
                                                   other.mesh_mapping)
 
   def __hash__(self):
-    return hash((self.sharding, self.mesh_mapping))
+    return hash((tuple(self.sharding), tuple(self.mesh_mapping)))
 
   def __repr__(self):
     return f'ShardingSpec({self.sharding}, {self.mesh_mapping})'
+
+
+  pmap_lib.ShardingSpec.mesh_shape = property(mesh_shape)
+  pmap_lib.ShardingSpec.sharding_proto = sharding_proto
+  pmap_lib.ShardingSpec.indices = indices
+  pmap_lib.ShardingSpec.__eq__ = __eq__
+  pmap_lib.ShardingSpec.__hash__ = __hash__
+  pmap_lib.ShardingSpec.__repr__ = __repr__
+
 
 def spec_to_indices(shape: Tuple[int, ...],
                     spec: ShardingSpec) -> Tuple[Index, ...]:
@@ -281,7 +276,7 @@ def spec_to_indices(shape: Tuple[int, ...],
   Args:
     shape: The shape of the logical array being sharded.
     spec: Describes how the array is sharded and how the shards are assigned to
-          the logical mesh.
+      the logical mesh.
 
   Returns:
     A tuple of length equal to the size of the mesh (inferred as the product of
@@ -427,7 +422,6 @@ def array_result_handler(sharding_spec, indices, aval: ShapedArray):
   return lambda bufs: ShardedDeviceArray(aval, sharding_spec, bufs, indices)
 pxla_result_handlers[ShapedArray] = array_result_handler
 pxla_result_handlers[ConcreteArray] = array_result_handler
-
 
 ### lazy device-memory persistence and result handling
 
@@ -1106,33 +1100,38 @@ def _pmap_sharding_spec(nrep, axis_size, npart, parts, sharded_aval, map_axis: O
   assert not ragged
   # get the sharding spec from inner sharded_jits as if we weren't in a pmap
   pspec = partitioned_sharding_spec(npart, parts, sharded_aval)
-  maybe_replicate = () if replication_factor == 1 else (Replicated(replication_factor),)
+  maybe_replicate = [] if replication_factor == 1 else [Replicated(replication_factor)]
   if map_axis is not None:
-    sharded_in_axis = sum(not isinstance(s, NoSharding) for s in pspec.sharding[:map_axis])
+    sharded_in_axis = sum(
+        not isinstance(s, NoSharding) for s in pspec.sharding[:map_axis])
+
     def shift_sharded_axis(a: MeshDimAssignment):
       if isinstance(a, ShardedAxis) and a.axis >= sharded_in_axis:
         return ShardedAxis(a.axis + 1)
       return a
     # replication_factor represents the product of inner pmaps, so it goes
     # after the outer pmapped axis at index 0
+    l = pspec.sharding
+    idx = map_axis
+    new_sharding = l[:idx] + [Unstacked(axis_size)] + l[idx:]
     return ShardingSpec(
-      sharding=tuple_insert(pspec.sharding, map_axis, Unstacked(axis_size)),
-      mesh_mapping=it.chain([ShardedAxis(sharded_in_axis)],
-                            maybe_replicate,
-                            map(shift_sharded_axis, pspec.mesh_mapping)))
+        sharding=new_sharding,
+        mesh_mapping=list(
+            it.chain([ShardedAxis(sharded_in_axis)], maybe_replicate,
+                     map(shift_sharded_axis, pspec.mesh_mapping))))
   else:
     return ShardingSpec(
-      sharding=pspec.sharding,
-      mesh_mapping=(Replicated(axis_size),) + maybe_replicate + pspec.mesh_mapping)
+        sharding=pspec.sharding,
+        mesh_mapping=[Replicated(axis_size)] + maybe_replicate + pspec.mesh_mapping)  # type: ignore
 
 def partitioned_sharding_spec(num_partitions: int,
                               partitions: Optional[Sequence[int]],
                               aval) -> ShardingSpec:
   if partitions is None:
-    maybe_replicate = () if num_partitions == 1 else (Replicated(num_partitions),)
+    maybe_replicate = [] if num_partitions == 1 else [Replicated(num_partitions)]
     return ShardingSpec(
         sharding=[_UNSHARDED_INSTANCE] * len(aval.shape),
-        mesh_mapping=maybe_replicate)
+        mesh_mapping=maybe_replicate)  # type: ignore
   else:
     assert len(partitions) == len(aval.shape)
     return ShardingSpec(

@@ -1961,7 +1961,7 @@ class APITest(jtu.JaxTestCase):
     with jtu.count_primitive_compiles() as count:
       lax.add(1, 2)
       lax.add(2, 3)
-    self.assertEqual(count[0], 1)
+    self.assertLessEqual(count[0], 1)
 
   def test_arange_jit(self):
     # see https://github.com/google/jax/issues/553

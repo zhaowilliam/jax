@@ -22,6 +22,8 @@ from unittest import SkipTest
 
 from jax import test_util as jtu
 from jax import numpy as jnp
+from jax._src.lax.lax import div_p
+from jax.interpreters import xla
 from jax.experimental import pjit
 
 from jax.config import config
@@ -52,10 +54,33 @@ class DebugNaNsTest(jtu.JaxTestCase):
     ans.block_until_ready()
 
   def testJitComputationNaN(self):
+    # See the subsequent test as well. This test covers the case where we get a
+    # Python compilation cache hit, since the next line ensures an appropriate
+    # version of the primitive impl rule is compiled. After jaxlib==0.1.65 both
+    # tests likely hit the same code paths, but at jaxlib==0.1.64 they cover
+    # different cases (namely whether we hit the nan check in
+    # `xla._execute_compiled` or the one in `xla.apply_primitive`).
+    # See https://github.com/google/jax/pull/6132#discussion_r605319698.
+    (0. / jnp.array(1.)).block_until_ready()
     A = jnp.array(0.)
     with self.assertRaises(FloatingPointError):
       ans = jax.jit(lambda x: 0. / x)(A)
       ans.block_until_ready()
+
+  def testJitComputationNaNNoCompilationCache(self):
+    # We make a new primitive so that there's no compilation cache entry for it.
+    new_p = jax.core.Primitive('div')
+    new_p.def_impl(div_p.impl)
+    new_p.def_abstract_eval(div_p.abstract_eval)
+    A = jnp.array(0.)
+
+    xla.translations[new_p] = xla.translations[div_p]
+    try:
+      with self.assertRaises(FloatingPointError):
+        ans = jax.jit(lambda x: new_p.bind(0., x))(A)
+        ans.block_until_ready()
+    finally:
+      del xla.translations[new_p]
 
   def testJitComputationNaNContextManager(self):
     config.update("jax_debug_nans", False)

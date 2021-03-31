@@ -275,11 +275,6 @@ def _python_jit(
   return f_jitted
 
 
-class _BackendAndDeviceInfo(NamedTuple):
-  default_device: xc.Device
-  committed_to_device: bool
-
-
 def _cpp_jit(
     fun: F,
     static_argnums: Union[int, Iterable[int]] = (),
@@ -380,7 +375,7 @@ def _cpp_jit(
       backend_ = xb.get_backend(backend)
       default_device = backend_.get_default_device_assignment(1)[0]
 
-    return _BackendAndDeviceInfo(default_device, committed_to_device)
+    return xla.BackendAndDeviceInfo(default_device, committed_to_device)
 
   # TODO(phawkins): Remove this branch when jaxlib 0.1.65 is the minimum
   # version.

@@ -2048,7 +2048,7 @@ def _make_select_and_scatter_add_harness(name,
     padding=padding)
 
 
-for dtype in set(jtu.dtypes.all) - set([np.complex64, np.complex128]):
+for dtype in set(jtu.dtypes.all) - set([np.bool_, np.complex64, np.complex128]):
   _make_select_and_scatter_add_harness("dtypes", dtype=dtype)
 
 # Validate different reduction primitives
